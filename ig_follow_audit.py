@@ -15,14 +15,35 @@ except Exception:
     pd = None
 
 HTML_STYLE = """
-body{font-family:system-ui,Arial,sans-serif;max-width:1000px;margin:24px auto;padding:0 12px}
+body{font-family:system-ui,Arial,sans-serif;max-width:1100px;margin:24px auto;padding:0 12px}
 h1{font-size:22px}
 h2{font-size:18px;margin-top:24px}
 .summary{padding:10px 12px;border:1px solid #ddd;border-radius:10px;background:#fafafa}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:18px}
-section.card{border:1px solid #e4e4e4;border-radius:14px;padding:12px 14px;background:white;box-shadow:0 1px 2px rgba(0,0,0,0.04)}
-ul.cols{columns:3;-webkit-columns:3;-moz-columns:3;gap:18px}
-li{break-inside:avoid;margin:4px 0}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:18px}
+section.card{border:1px solid #e4e4e4;border-radius:14px;padding:12px 14px;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+/* grid-based list instead of CSS columns */
+ul.cols{
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(220px,1fr));
+  gap:10px;
+  list-style:none;
+  padding:0;
+  margin:0;
+}
+ul.cols li{
+  direction:ltr;               /* keep @user left-to-right */
+  white-space:nowrap;          /* single clean line per user */
+  overflow:hidden;             /* no ugly wrapping */
+  text-overflow:ellipsis;      /* show … if too long */
+  line-height:1.35;
+  padding:6px 8px;
+  border-radius:8px;
+  background:#f9f9f9;
+  border:1px solid #eee;
+}
+ul.cols li a{
+  text-decoration:none;
+}
 .badge{display:inline-block;font-size:12px;padding:2px 8px;border-radius:999px;border:1px solid #ddd;background:#fff;margin-right:6px}
 .search{margin:10px 0}
 input[type="search"]{width:100%;padding:8px 10px;border:1px solid #ccc;border-radius:10px}
@@ -39,7 +60,7 @@ function setupFilter(sectionId){
     const q = this.value.toLowerCase();
     let shown = 0;
     lis.forEach(li => {
-      const u = li.getAttribute('data-u') || '';
+      const u = (li.getAttribute('data-u') || '').toLowerCase();
       const show = u.includes(q);
       li.style.display = show ? '' : 'none';
       if(show) shown++;
@@ -130,10 +151,10 @@ def subset(rows, relation):
     return [r for r in rows if r["relation"] == relation]
 
 def html_list(section_id, title, items):
-    lis = "\n".join([f"<li data-u=\"{r['username'].lower()}\"><a href=\"{r['profile_url']}\" target=\"_blank\">@{r['username']}</a></li>" for r in items])
+    lis = "\n".join([f"<li data-u=\"{r['username']}\"><a href=\"{r['profile_url']}\" target=\"_blank\">@{r['username']}</a></li>" for r in items])
     return f"""
 <section id="{section_id}" class="card">
-  <div class="search"><input type="search" placeholder="חיפוש לפי שם משתמש..."></div>
+  <div class="search"><input type="search" placeholder="Search by username..."></div>
   <h2>{title} - <span class="count">{len(items)}</span></h2>
   <ul class="cols">{lis}</ul>
 </section>
@@ -146,7 +167,7 @@ def write_html(out_html: Path, title: str, followers: set, following: set, rows:
 
     out_html.parent.mkdir(parents=True, exist_ok=True)
     with open(out_html, "w", encoding="utf-8") as f:
-        f.write("<!DOCTYPE html><html><head><meta charset='utf-8'>")
+        f.write("<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'>")
         f.write(f"<title>{title}</title>")
         f.write("<style>"+HTML_STYLE+"</style>")
         f.write("</head><body>")
@@ -194,23 +215,19 @@ def main():
     headers = ["username","follows_you","you_follow","relation","profile_url"]
     if pd is not None:
         df = pd.DataFrame(rows, columns=headers)
-        # Sort: you_follow_they_do_not - they_follow_you_only - mutual - username
         relation_order = {"you_follow_they_do_not": 0, "they_follow_you_only": 1, "mutual": 2, "unknown": 9}
         df["relation_rank"] = df["relation"].map(relation_order).fillna(9)
         df = df.sort_values(["relation_rank","username"]).drop(columns=["relation_rank"])
         df.to_csv(rel_csv, index=False, encoding="utf-8")
-        # Also export subsets
         df[df["relation"]=="you_follow_they_do_not"].to_csv(out_dir / "you_follow_they_do_not.csv", index=False, encoding="utf-8")
         df[df["relation"]=="they_follow_you_only"].to_csv(out_dir / "they_follow_you_only.csv", index=False, encoding="utf-8")
         df[df["relation"]=="mutual"].to_csv(out_dir / "mutual.csv", index=False, encoding="utf-8")
     else:
-        # Basic csv write
         with open(rel_csv, "w", encoding="utf-8", newline="") as f:
             w = csv.DictWriter(f, fieldnames=headers)
             w.writeheader()
             for r in rows:
                 w.writerow({h: r.get(h) for h in headers})
-        # Subsets
         for name in ("you_follow_they_do_not","they_follow_you_only","mutual"):
             sub = [r for r in rows if r["relation"]==name]
             with open(out_dir / f"{name}.csv", "w", encoding="utf-8", newline="") as f:
@@ -219,7 +236,6 @@ def main():
                 for r in sub:
                     w.writerow({h: r.get(h) for h in headers})
 
-    # HTML report
     html_path = out_dir / "instagram_audit_report.html"
     write_html(html_path, args.title, followers, following, rows)
 
